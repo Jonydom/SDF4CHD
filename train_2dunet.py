@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import pickle
 import vtk
 from vtk_utils.vtk_utils import *
-import munet_dataset
+import unet2d_dataset
 from torch.utils.data import DataLoader
 import yaml
 import functools
@@ -18,7 +18,7 @@ import argparse
 import h5py
 import random
 from torchinfo import summary
-from munet import Modified3DUNet
+from unet_2d import UNet2D
 
 device = torch.device('cuda:' + str(0) if torch.cuda.is_available() else 'cpu')
 print("DEVICE: ", device)
@@ -28,6 +28,17 @@ def worker_init_fn(worker_id):
     if torch_seed >= 2**30:  # make sure torch_seed + workder_id < 2**32
         torch_seed = torch_seed % 2**30
     np.random.seed(torch_seed + worker_id)
+
+def convert_shape(data):
+    b, c, h, w, d = data.shape
+    data = torch.movedim(data, -1, 0)
+    return data.reshape(-1, c, h, w)
+
+def convert_shape_back(data, batch_size):
+    n, c, h, w = data.shape
+    data = data.reshape(-1, batch_size, c, h, w)
+    data = torch.movedim(data, 0, -1)
+    return data
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -43,13 +54,10 @@ if __name__ == '__main__':
         os.makedirs(cfg['data']['output_dir'])
 
     # create dataloader
-    train = munet_dataset.ImgSDFDataset(cfg['data']['train_dir'], cfg['data']['chd_info'], mode=['train'], use_aug=True)
-    #test = munet_dataset.ImgSDFDataset(cfg['data']['test_dir'], cfg['data']['chd_info'], mode=['validate'], use_aug=False)
-    dataloader_train = DataLoader(train, batch_size=2, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn = worker_init_fn, num_workers=0)
-    #dataloader_test = DataLoader(test, batch_size=2, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn = worker_init_fn, num_workers=4)
-    #print("Steps: ", len(dataloader_train), len(dataloader_test))
+    train = unet2d_dataset.ImgSDFDataset(cfg['data']['train_dir'], cfg['data']['chd_info'], mode=['train'], use_aug=True)
+    dataloader_train = DataLoader(train, batch_size=cfg['train']['batch_size'], shuffle=True, pin_memory=True, drop_last=True, worker_init_fn = worker_init_fn, num_workers=0)
    
-    net = Modified3DUNet(in_channels=1, n_classes=cfg['net']['n_classes'], base_n_filter=16) 
+    net = UNet2D(in_channels=1, out_channels=cfg['net']['n_classes'])
     net = nn.DataParallel(net)
     net.to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=cfg['train']['lr'], betas=(0.5, 0.999))
@@ -68,30 +76,19 @@ if __name__ == '__main__':
         kbar = pkbar.Kbar(target=len(dataloader_train), epoch=epoch, num_epochs=cfg['train']['epoch'], width=20, always_stateful=False)
         net.train()
         for i, data in enumerate(dataloader_train):
-            img = data['image'].to(device)
+            img = convert_shape(data['image'].to(device))
+            #plt.imshow(img.detach().cpu().numpy()[100, 0, :, :])
+            #plt.savefig('test.png')
             if epoch == 0 and i ==0:
                 summary(net, tuple(img.shape)) 
             net.zero_grad()
             gt  = data['y'].long().to(device)
-            logits, _ = net(img)
-            loss = loss_func(logits, gt)
+            logits = net(img)
+            loss = loss_func(convert_shape_back(logits, cfg['train']['batch_size']), gt)
             
             loss.backward()
             optimizer.step()
             kbar.update(i, values=[("loss", loss)])
         with torch.no_grad():
-            #net.eval()
-            #total_loss = 0.
-            #for i, data in enumerate(dataloader_test):
-            #    img = data['image'].to(device)
-            #    gt  = data['y'].long().to(device)
-            #    logits, _ = net(img)
-            #    val_loss = loss_func(logits, gt)
-            #    total_loss += val_loss.item()
-            #scheduler.step(total_loss)
-            #kbar.add(1, values=[("val_total_loss", total_loss/len(dataloader_test))])
-            #best = total_loss < best_val_loss
-            #if best:
-            #    best_val_loss = total_loss
             io_utils.save_ckp_single(net, optimizer, scheduler, epoch, os.path.join(cfg['data']['output_dir']))
             

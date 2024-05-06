@@ -12,7 +12,7 @@ class Modified3DUNet(nn.Module):
         self.lrelu = nn.LeakyReLU()
         self.dropout3d = nn.Dropout3d(p=0.6)
         self.upsacle = nn.Upsample(scale_factor=2, mode='nearest')
-        self.act = nn.Softmax(dim=1) if n_classes > 1 else nn.Sigmoid()
+        self.act = nn.Identity() if n_classes > 1 else nn.Sigmoid()
 
         # Level 1 context pathway
         self.conv3d_c1_1 = nn.Conv3d(self.in_channels, self.base_n_filter, kernel_size=3, stride=1, padding=1, bias=False)

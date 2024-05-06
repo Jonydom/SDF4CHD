@@ -72,6 +72,23 @@ def dice_score(pred, true):
     dice_out[0] = np.sum((pred==true)[mask]) * 2. / (np.sum(pred>0) + np.sum(true>0))
     return dice_out 
 
+def volume_score(pred, true):
+    pred = pred.astype(np.int)
+    true = true.astype(np.int)
+    num_class = np.unique(true)
+    verr_out = [None]*len(num_class)
+    
+    true_v_total = np.sum(true>0)
+    total_vol_err = 0.
+    for i in range(1, len(num_class)):
+        true_v = np.sum(true == num_class[i])
+        pred_v = np.sum(pred == num_class[i])
+        verr_out[i] = np.abs(pred_v-true_v)/true_v
+
+        total_vol_err += verr_out[i] * float(true_v)/float(true_v_total)
+    verr_out[0] = total_vol_err
+    return verr_out
+
 def jaccard_score(pred, true):
     pred = pred.astype(np.int)
     true = true.astype(np.int)
@@ -88,13 +105,13 @@ def jaccard_score(pred, true):
     jac_out[0] = np.sum((pred==true)[mask]) / (np.sum(pred>0) + np.sum(true>0)-np.sum((pred==true)[mask]))
     return jac_out 
 
-def dice_score_from_sdf(pred_sdf, true):
+def dice_score_from_sdf(pred_sdf, true, thresh=0.5):
     pred_seg = np.argmax(pred_sdf, axis=-1) + 1
-    pred_seg[np.all(pred_sdf<0.5, axis=-1)] = 0
-    return dice_score(pred_seg.transpose(2, 1, 0), true)
+    pred_seg[np.all(pred_sdf<thresh, axis=-1)] = 0
+    return dice_score(pred_seg, true)
 
-def jaccard_score_from_sdf(pred_sdf, true):
+def jaccard_score_from_sdf(pred_sdf, true, thresh=0.5):
     pred_seg = np.argmax(pred_sdf, axis=-1) + 1
-    pred_seg[np.all(pred_sdf<0.5, axis=-1)] = 0
-    return jaccard_score(pred_seg.transpose(2, 1, 0), true)
+    pred_seg[np.all(pred_sdf<thresh, axis=-1)] = 0
+    return jaccard_score(pred_seg, true)
 

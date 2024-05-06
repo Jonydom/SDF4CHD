@@ -29,9 +29,11 @@ class ImgSDFDataset(Dataset):
             df = read_excel(chd_info['diag_fn'], sheet_name=chd_info['diag_sn'])
             self.seg_fns, self.diag_data, self.idx_dict = parse_data_by_chd_type(self.seg_fns, df, chd_info['types'], chd_info['exclude_types'], mode=mode, use_aug=use_aug)
             self.im_fns, _, _ = parse_data_by_chd_type(self.im_fns, df, chd_info['types'], chd_info['exclude_types'], mode=mode, use_aug=use_aug)
+        self.mode = mode
+    
         for i, j  in zip(self.seg_fns, self.im_fns):
             assert os.path.basename(i) == os.path.basename(j), "Unmatched segmentation and image data in the training dataset"
-    
+
     def __len__(self):
         return len(self.im_fns)
 
@@ -55,7 +57,18 @@ class ImgSDFDataset(Dataset):
 
         img_py = pickle.load(open(img_file_name, 'rb'))
         
-        # if not normalized
+        # If synthesized with GAN cut of 60 slices of background from bottom and 30 from top 
+        if np.min(img_py) < 0.: # this is for syn data
+            start_id, end_id = 50, 50
+            img_py = img_py[:, :, start_id:-end_id]
+            seg_py = seg_py[:, :, start_id:-end_id]
+
+        # random slicing, pick 16 slices per volume
+        if self.mode == ['train']:
+            idx = np.random.choice(np.arange(img_py.shape[-1]), size=16, replace=False)
+            img_py = img_py[:, :, idx]
+            seg_py = seg_py[:, :, idx]
+        # if not normalized, for imagechd dataset
         if np.max(img_py) > 100:
             img_py = img_py -  np.min(img_py)
             img_py = np.clip(img_py, 0., 2000.)/2000.

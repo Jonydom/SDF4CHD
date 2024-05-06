@@ -13,38 +13,65 @@ import shutil
 import csv
 import SimpleITK as sitk
 
-def save_ckp(model, optimizers, epoch, is_best, checkpoint_dir, best_model_dir):
+def save_ckp_single(model, optimizer, scheduler, epoch, checkpoint_dir):
     checkpoint = {
     'epoch': epoch + 1,
     'state_dict': model.state_dict(),
+    'optimizer': optimizer.state_dict(),
+    'scheduler': scheduler.state_dict()
     }
-    for i, opt in enumerate(optimizers):
-        checkpoint['optimizer_{}'.format(i)] = opt.state_dict()
+    if isinstance(model, torch.nn.DataParallel):
+        checkpoint['state_dict'] = model.module.state_dict()
     f_path = os.path.join(checkpoint_dir, 'net_{}.pt'.format(checkpoint['epoch']))
     torch.save(checkpoint, f_path)
-    if is_best:
-        best_fpath = os.path.join(best_model_dir, 'best_model.pt')
-        shutil.copyfile(f_path, best_fpath)
+    torch.save(checkpoint, os.path.join(checkpoint_dir, 'net.pt'))
 
-def load_ckp(checkpoint_fpath, model, optimizers):
+def load_ckp_single(checkpoint_fpath, model, optimizer, scheduler):
     checkpoint = torch.load(checkpoint_fpath)
-    model.load_state_dict(checkpoint['state_dict'])
+    if isinstance(model, torch.nn.DataParallel):
+        model.module.load_state_dict(checkpoint['state_dict'])
+    else:
+        model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    scheduler.load_state_dict(checkpoint['scheduler'])
+    return model, optimizer, scheduler, checkpoint['epoch']
+
+def save_ckp(model, optimizers, schedulers, epoch, checkpoint_dir, name='net'):
+    checkpoint = {
+    'epoch': epoch + 1,
+    'state_dict': model.state_dict(),
+    'optimizers': [o.state_dict() for o in optimizers],
+    'schedulers': [s.state_dict() for s in schedulers]
+    }
+    if isinstance(model, torch.nn.DataParallel):
+        checkpoint['state_dict'] = model.module.state_dict()
+    f_path = os.path.join(checkpoint_dir, '{}_{}.pt'.format(name, checkpoint['epoch']))
+    torch.save(checkpoint, f_path)
+    torch.save(checkpoint, os.path.join(checkpoint_dir, '{}.pt'.format(name)))
+
+def load_ckp(checkpoint_fpath, model, optimizers, schedulers):
+    checkpoint = torch.load(checkpoint_fpath)
+    if isinstance(model, torch.nn.DataParallel):
+        model.module.load_state_dict(checkpoint['state_dict'])
+    else:
+        model.load_state_dict(checkpoint['state_dict'])
     for i, opt in enumerate(optimizers):
-        optimizers[i].load_state_dict(checkpoint['optimizer_{}'.format(i)])
-    return model, optimizers, checkpoint['epoch']
+        optimizers[i].load_state_dict(checkpoint['optimizers'][i])
+    for i, sch in enumerate(schedulers):
+        schedulers[i].load_state_dict(checkpoint['schedulers'][i])
+    return model, optimizers, schedulers, checkpoint['epoch']
 
 def write_sampled_point(points, point_values, fn, flip=True):
     pts_py = (np.squeeze(points.detach().cpu().numpy()) + 1.)/2.
     if flip:
         pts_py = np.flip(pts_py, -1)
-    #print(pts_py, v_py)
     vtk_pts = vtk.vtkPoints()
     vtk_pts.SetData(numpy_to_vtk(pts_py))
     poly = vtk.vtkPolyData()
     poly.SetPoints(vtk_pts)
 
     if point_values is not None:
-        v_py = np.squeeze(point_values.detach().cpu().numpy())
+        v_py = np.squeeze(point_values.detach().cpu().numpy()).transpose()
         v_arr = numpy_to_vtk(v_py)
         v_arr.SetName('occupancy')
         poly.GetPointData().AddArray(v_arr)
@@ -91,6 +118,17 @@ def sdf_to_vtk_image(sdf):
         img.GetPointData().AddArray(sdf_vtk)
     return img
 
+def vtk_image_to_sdf(vtk_image):
+    sdf_list = []
+    num_class = vtk_image.GetPointData().GetNumberOfArrays()
+    for i in range(num_class):
+        name = 'id{}'.format(i)
+        sdf_i = vtk_to_numpy(vtk_image.GetPointData().GetArray(name))
+        sdf_list.append(sdf_i)
+    x, y, z = vtk_image.GetDimensions()
+    sdf = np.array(sdf_list).transpose(1, 0).reshape(x, y, z, num_class)
+    return sdf
+
 def write_vtk_image(sdf, fn, info=None):
     img = sdf_to_vtk_image(sdf)
     if info is not None:
@@ -108,7 +146,7 @@ def write_nifty_image(sdf, fn):
     sitk.WriteImage(img, fn)
 
 
-def write_sdf_to_vtk_mesh(sdf, fn, thresh, decimate=0.):
+def write_sdf_to_vtk_mesh(sdf, fn, thresh, decimate=0., keep_largest=False):
     mesh_list = []
     region_ids = []
     for i in range(sdf.shape[-1]):
@@ -117,9 +155,13 @@ def write_sdf_to_vtk_mesh(sdf, fn, thresh, decimate=0.):
         img.SetSpacing(np.ones(3)/np.array(sdf.shape[:-1]))
         img.SetOrigin(np.zeros(3))
         img.GetPointData().SetScalars(numpy_to_vtk(sdf[:, :, :, i].transpose(2, 1, 0).flatten()))
-        mesh = vtk_utils.vtk_marching_cube_continuous(img, thresh)
+        if keep_largest:
+            img = vtk_utils.image_largest_connected(img)
+            mesh = vtk_utils.vtk_marching_cube(img, 0, 1)
+        else:
+            mesh = vtk_utils.vtk_marching_cube_continuous(img, thresh)
         # tmp flip
-        mesh_coords = np.flip(vtk_to_numpy(mesh.GetPoints().GetData()), axis=-1)
+        mesh_coords = vtk_to_numpy(mesh.GetPoints().GetData())
         #mesh_coords[:, 0] *= -1
         #mesh_coords[:, 2] *= -1
         mesh.GetPoints().SetData(numpy_to_vtk(mesh_coords))
@@ -129,6 +171,8 @@ def write_sdf_to_vtk_mesh(sdf, fn, thresh, decimate=0.):
     region_id_arr = numpy_to_vtk(np.array(region_ids))
     region_id_arr.SetName('RegionId')
     mesh_all.GetPointData().AddArray(region_id_arr)
+    if keep_largest:
+        mesh_all = vtk_utils.smooth_polydata(mesh_all, smoothingFactor=0.5)
     if decimate > 0.:
         mesh_all = vtk_utils.decimation(mesh_all, decimate)
     vtk_utils.write_vtk_polydata(mesh_all, fn)
