@@ -690,50 +690,23 @@ if __name__ == '__main__':
     parser.add_argument('--config')
     parser.add_argument('--grid_size', type=int, default=2)
     args = parser.parse_args()
-    test_ops = {
-            'type_pred': False,
-            'type_interp': True,
-            'train_dice': False,
-            'test_dice': False,
-            'shape_type_interp': False,
-            'shape_gen': False, 
-            'invertible': False,
-            'image_syn':False,
-            'motion': False,
-            'test_sparse_dice': False,
-            'new_type': False,
-            'vsd_variation': False,
-            'rand_type_gen': False
-            }                 
-    #test_ops = {             
-    #        'type_pred': Fals#e,
-    #        'type_interp': Fa#lse,
-    #        'train_dice': Fal#se,
-    #        'test_dice': Fals#e,
-    #        'shape_type_inter#p': False,
-    #        'shape_gen': Fals#e, 
-    #        'invertible': Fal#se,
-    #        'image_syn': True,
-    #        'motion': False
-    #        }
-
+    
     MODE = ['train']
     num_block=1
     with open(args.config, "r") as ymlfile:
         cfg = yaml.full_load(ymlfile)
 
+    test_ops = cfg['test_ops']
     if not os.path.exists(cfg['data']['output_dir']):
         os.makedirs(cfg['data']['output_dir'])
     
     THRESH = 0.5
-    print("DEBUG THRESH: ", THRESH)
     tester = SDF4CHDTester(device, cell_grid_size=args.grid_size, out_dim=cfg['net']['out_dim'], sampling_threshold=THRESH, \
             binary=True if cfg['train']['binary'] else False)
     dice_score_list, dice_noCorr_score_list, time_list = [], [], []
     z_vector_list = {}
 
     # TRAINING ACCURACY
-    #train = dataset.SDFDataset(cfg['data']['train_dir'], cfg['train']['n_smpl_pts'], cfg['data']['output_dir'], chd_info=cfg['data']['chd_info'], mode=MODE, use_aug=False, pad_num=cfg['train']['pad_num'], binary=cfg['train']['binary'])
     train = dataset.SDFDataset(cfg['data']['train_dir'], cfg['train']['n_smpl_pts'], cfg['data']['output_dir'], chd_info=cfg['data']['chd_info'], mode=MODE, use_aug=False, pad_num=cfg['train']['pad_num'])
     dataloader_test = DataLoader(train, batch_size=1, shuffle=False, pin_memory=True)
     # create network and latent codes
@@ -754,7 +727,6 @@ if __name__ == '__main__':
             act_func=net_utils.act if cfg['train']['binary'] else lambda x: x)
         # initialize Z_s
     
-    print("DEBUG-------: ", len(train))
     lat_vecs = torch.nn.Embedding(len(train.idx_dict), cfg['net']['z_s_dim']*cfg['net']['l_dim']*cfg['net']['l_dim']*cfg['net']['l_dim'], max_norm=1.).to(device)
     #lat_vecs.load_state_dict(torch.load(os.path.join(cfg['data']['output_dir'], 'code{}.pt'.format(args.epoch)), map_location=torch.device('cpu'))['latent_codes'])
     if cfg['net']['two_shape_codes']:
@@ -781,26 +753,13 @@ if __name__ == '__main__':
         type_dict = get_type_dict(cfg['data']['chd_info'], get_new_type=False)
         ## For all
         interp_groups = [['VSD_ToF', 'VSD_TGA'], ['Normal', 'VSD_PuA']]
-        interp_groups = [['VSD', 'SV_VSD'], ['Normal', 'SV_VSD']]
-        #interp_groups = [['VSD_TGA', 'SV_PuA_TGA']]
+        #interp_groups = [['VSD', 'SV_VSD'], ['Normal', 'SV_VSD']]
         for g in interp_groups:
             interpolate_type(net, type_dict, g[1], g[0], cfg, interval=21, num_block=1, thresh=THRESH, mode='extrap')
-        #interp_groups = [['VSD_ToF', 'VSD_DORV'], ['VSD_DORV', 'VSD_TGA'], ['Normal', 'VSD_ToF'], ['VSD_ToF', 'VSD_PuA']]
-        #for g in interp_groups:
-        #    interpolate_type(net, type_dict, g[1], g[0], cfg, interval=11, num_block=1, thresh=THRESH)
+        interp_groups = [['VSD_ToF', 'VSD_DORV'], ['VSD_DORV', 'VSD_TGA'], ['Normal', 'VSD_ToF'], ['VSD_ToF', 'VSD_PuA']]
+        for g in interp_groups:
+            interpolate_type(net, type_dict, g[1], g[0], cfg, interval=11, num_block=1, thresh=THRESH)
         
-        ## For VSD only
-        #interp_groups = [['Normal', 'VSD']]
-        #for g in interp_groups:
-        #    interpolate_type(net, type_dict, g[1], g[0], cfg, interval=26, num_block=1, thresh=0.5, mode='extrap')
-        # For ASD+PuA only
-        #interp_groups = [['VSD_PuA', 'PuA']]
-        #for g in interp_groups:
-        #    interpolate_type(net, type_dict, g[1], g[0], cfg, interval=26, num_block=1, thresh=0.5, mode='extrap')
-    if test_ops['new_type']:
-        sv_fn = '/scratch/users/fwkong/CHD/imageCHDCleanedOriginal_aligned_all/whole_heart_processed_topology_fixed_aligned/pytorch/ct_10605_image.pkl'
-        sv_fn = '/scratch/users/fwkong/CHD/imageCHDCleanedOriginal_aligned_all/whole_heart_processed_topology_fixed_aligned/pytorch/ct_41501_image.pkl'
-        fit_new_type(sv_fn, net, cfg, cfg['data']['chd_info'], 'ASD_TGA')
     if test_ops['train_dice']:
         # TEST 3: WH DICE ACCURACY ON SEEN SHAPES
         with torch.no_grad():
@@ -829,38 +788,16 @@ if __name__ == '__main__':
         # TEST 4: WH DICE ACCURACY ON UNSEEN SHAPES
         MODE = ['test']
         #MODE = ['validate']
-        #cfg['data']['test_output_dir'] = os.path.join(cfg['data']['output_dir'], MODE[0]+ '_bothExpFac1_healthyInit_opt_{}'.format(args.epoch))
         cfg['data']['test_output_dir'] = os.path.join(cfg['data']['output_dir'], MODE[0]+ '_both_lat{}_fixType_opt_{}'.format(cfg['net']['test_l_dim'], args.epoch))
-        #cfg['data']['test_output_dir'] = os.path.join(cfg['data']['output_dir'], MODE[0]+ '_both_lat{}_fixType_opt_motion_{}'.format(cfg['net']['test_l_dim'], args.epoch))
         if not os.path.exists(cfg['data']['test_output_dir']):
             os.makedirs(cfg['data']['test_output_dir'])
         fit_testdata(net, cfg, mode=MODE, iter_num=260, thresh=THRESH, opt_both=True, two_shape_codes=cfg['net']['two_shape_codes'])
     
-    if test_ops['test_sparse_dice']:
-        # TEST 4: WH DICE ACCURACY ON UNSEEN SHAPES
-        MODE = ['test']
-        slice_num = [3, 5, 10, 15]
-        for s in slice_num:
-            cfg['data']['test_output_dir'] = os.path.join(cfg['data']['output_dir'], MODE[0]+ '_both_lat{}_fixType_opt_{}_sparse{}'.format(cfg['net']['test_l_dim'], args.epoch, s))
-            if not os.path.exists(cfg['data']['test_output_dir']):
-                os.makedirs(cfg['data']['test_output_dir'])
-            fit_sparse_testdata(s, net, cfg, mode=MODE, iter_num=200, thresh=THRESH, opt_both=True, two_shape_codes=cfg['net']['two_shape_codes'])
-    
     if test_ops['shape_type_interp']:
         # TEST 5: TYPE AND SHAPE INTERPOLATION
         MODE = ['train']
-        #selected_list = ['ct_1017_image', 'ct_1077_image', 'ct_1037_image', 'ct_1098_image', 'ct_1043_image', 'ct_1042_image']
-        selected_list = ['ct_1101_image', 'ct_1042_image']
-        selected_list = ['ct_1101_image', 'ct_1112_image']
-        # PuA - ToF - Normal - ToF - DORV - TGA 
-        #selected_list = ['ct_1098_image', 'ct_1037_image', 'ct_1017_image']
-        selected_list = ['ct_1099_image', 'ct_1017_image']
-        #selected_list = ['ct_1012_image', 'ct_1056_image', 'ct_1043_image']
-        #selected_list = ['ct_1012_image', 'ct_1043_image']
         selected_list = ['ct_1017_image', 'ct_1012_image']
-        #selected_list = ['ct_1101_image', 'ct_1138_image']
         data_dict = OrderedDict()
-        print(data_dict)
         for i, data in enumerate(dataloader_test):
             original_copy = bool(re.match("ct_[a-z]+_\d+",data['filename'][0])) or bool(re.match("ct_\d+_image", data['filename'][0]))
                 #if original_copy and data['filename'][0] in selected_list:
@@ -889,16 +826,5 @@ if __name__ == '__main__':
         cfg['data']['test_output_dir'] = os.path.join(cfg['data']['output_dir'], MODE[0]+ '_both_lat{}_fixType_opt_{}'.format(cfg['net']['test_l_dim'], args.epoch))
         test_invertibility(net, cfg, mode=MODE)
 
-    if test_ops['image_syn']:
-        stats = get_shape_distribution(cfg)
-        image_mesh_synthesize(net, lat_vecs, stats, num_copies=10,num_block=1, thresh=THRESH, cfg=cfg, tester=tester)
-
-    if test_ops['motion']:
-        seg_dir = '/scratch/users/fwkong/CHD/NM/seg_heartdeformnet/processed'
-        tmplt_dir = '/scratch/users/fwkong/CHD/NM/seg_heartdeformnet/templates/'
-        fns = glob.glob(os.path.join(tmplt_dir, '*.vtp'))
-        #get_motion(net, cfg, seg_dir, iter_num=100)
-        for f in fns:
-            apply_motion(net, seg_dir, type_fn=f)
     if test_ops['rand_type_gen']:
         random_type_generation(cfg, net, num_gen=50)

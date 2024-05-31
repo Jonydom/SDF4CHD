@@ -1,14 +1,14 @@
 data:
-  output_dir: /scratch/users/fwkong/CHD/output/wh_raw_tests_cleanedall/GenLargeWHSep3/Ours_final_Apr26/alter5Joint1000_latent4_lipx100_NOuseDiag_Init1017_DivMag0_Pad10_GradMag0_smplfac20
-  train_dir: /scratch/users/fwkong/CHD/imageCHDCleanedOriginal_aligned_all/whole_heart_processed_topology_fixed_aligned
-  test_dir: /scratch/users/fwkong/CHD/imageCHDCleanedOriginal_aligned_all/whole_heart_processed_topology_fixed_aligned
+  output_dir: pretrained/sdf4chd_final
+  train_dir: data/processed_segs
+  test_dir: data/processed_segs
   chd_info:
-    diag_fn: /scratch/users/fwkong/CHD/imageCHDCleanedOriginal_aligned_all/whole_heart_processed_topology_fixed_aligned/imageCHD_dataset_WH_diagnosis_info-apr29updates.xlsx
+    diag_fn: data/updated_diagnosis.xlsx
     diag_sn: Sheet1
     types: ['ASD','VSD','DORV', 'PuA','ToF','TGA']
-    exclude_types: ['SV', 'HLHS', 'AVSD']
+    exclude_types: ['SV']
   point_sampling_factor: 20
-  tmplt_sdf: /scratch/users/fwkong/CHD/imageCHDCleanedOriginal_aligned_all/whole_heart_processed_topology_fixed_aligned/pytorch/ct_1017_image.pkl
+  tmplt_sdf: data/processed_segs/pytorch/ct_1017_image.pkl
 net:
   out_dim: 7
   n_conv_blocks: 5
@@ -57,3 +57,13 @@ train:
       gaussian_s_loss: 0.01
       div_integral: 0.0
       grad_mag: 0.
+test_ops:
+  type_pred: false
+  type_interp: false
+  train_dice: false
+  test_dice: false
+  shape_type_interp: false
+  shape_gen: true
+  invertible: false
+  vsd_variation: false
+  rand_type_gen: false
