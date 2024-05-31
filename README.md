@@ -30,3 +30,20 @@ The required packages are listed in `requirements.txt'. We used Python/3.7 to bu
 pip install -r requirements.txt
  ```
 
+## Run test cases
+After setting up the environment, the following command can perform a simple test case to generate a spectrum of CHD anatomies between VSD+ToF and VSD+TGA. A pretrained model has been released in `pretrained/sdf4chd_final`. You should be able to see meshes of the whole heart in `.vtp` format as the output. These mesh files can be visualized in Paraview. 
+```
+python test_gen.py --config config/gen_test_wh.yml --epoch 2000
+```
+Additional tests conducted in the paper can also be performed by modifying the field `test_ops` in the config file.
+
+## Training the network
+To train the network on CHD segmentations, you need to specify the correct paths pointing to your training data by modifying the field `data` in the config file. Other network and training settings can also be adjusted in the config file. The following command will either train a model from scratch if the model does not exist in the specified output directory, or continue to train a model if the model exists. 
+```
+python train_gen.py --config config/gen_test_wh.yml
+```
+## Planned updates to the repo
+Here is a list of updates that I plan to include soon in this repository. Please open an issue if you suggest additional updates.
+* Upload pre-processed segmentation data in `.pkl` format.
+* Upload template meshes used for CFD simulation.
+* A tutorial for generating anatomies of specified CHD types. 
