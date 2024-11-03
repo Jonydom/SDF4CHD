@@ -46,4 +46,4 @@ python train_gen.py --config config/gen_test_wh.yml
 Here is a list of updates that I plan to include soon in this repository. Please open an issue if you suggest additional updates.
 * Upload pre-processed segmentation data in `.pkl` format.
 * Upload template meshes used for CFD simulation.
-* A tutorial for generating anatomies of specified CHD types. 
+* A tutorial for generating anatomies of specified CHD types.
